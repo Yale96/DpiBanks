@@ -9,15 +9,6 @@ import java.awt.EventQueue;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import javax.jms.Connection;
-import javax.jms.DeliveryMode;
-import javax.jms.Destination;
-import javax.jms.JMSException;
-import javax.jms.Message;
-import javax.jms.MessageConsumer;
-import javax.jms.MessageProducer;
-import javax.jms.ObjectMessage;
-import javax.jms.Session;
 
 import javax.swing.DefaultListModel;
 import javax.swing.JFrame;
@@ -30,7 +21,7 @@ import messaging.requestreply.RequestReply;
 import model.bank.*;
 import model.loan.LoanReply;
 import model.loan.LoanRequest;
-import org.apache.activemq.ActiveMQConnectionFactory;
+import utils.Gateway;
 
 /**
  *
@@ -45,6 +36,9 @@ public class LoanBrokerFrame extends JFrame {
     private JPanel contentPane;
     private DefaultListModel<JListLine> listModel = new DefaultListModel<JListLine>();
     private JList<JListLine> list;
+
+    private Gateway gateway;
+    private Gateway gateway2;
 
     public static void main(String[] args) {
         EventQueue.invokeLater(new Runnable() {
@@ -62,7 +56,39 @@ public class LoanBrokerFrame extends JFrame {
     /**
      * Create the frame.
      */
-    public LoanBrokerFrame() {
+    public LoanBrokerFrame(){
+        gateway = new Gateway("LoanRequest.Client") {
+            @Override
+            public void messageReceived(RequestReply rr) {
+                LoanRequest loanRequest = (LoanRequest) rr.getRequest();
+                add(loanRequest);
+                BankInterestRequest bankInterestRequest = new BankInterestRequest(loanRequest.getAmount(), loanRequest.getTime());
+                bankInterestRequest.setHash(loanRequest.getHash());
+                add(loanRequest, bankInterestRequest);
+                RequestReply rTwo = new RequestReply<BankInterestRequest, BankInterestReply>(bankInterestRequest, null);
+
+                gateway.postMessage(rTwo);
+            }
+        };
+
+        gateway2 = new Gateway("LoanReply.Bank") {
+            @Override
+            public void messageReceived(RequestReply rr) {
+                BankInterestRequest bir = (BankInterestRequest) rr.getRequest();
+                BankInterestReply bire = (BankInterestReply) rr.getReply();
+
+                JListLine jls = getBankRequestReply(bir);
+                add(jls.getLoanRequest(), bire);
+                LoanReply lr = new LoanReply();
+                lr.setInterest(bire.getInterest());
+                lr.setHash(bire.getHash());
+                lr.setQuoteID(bire.getQuoteId());
+                RequestReply rr2 = new RequestReply(jls.getLoanRequest(), lr);
+
+                gateway.postMessage(rr2);
+            }
+        };
+
         setTitle("Loan Broker");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setBounds(100, 100, 450, 300);
@@ -87,10 +113,6 @@ public class LoanBrokerFrame extends JFrame {
 
         list = new JList<JListLine>(listModel);
         scrollPane.setViewportView(list);
-
-        new Thread(new Consumer()).start();
-        new Thread(new ConsumerTwo()).start();
-
     }
 
     private JListLine getRequestReply(LoanRequest request) {
@@ -134,127 +156,6 @@ public class LoanBrokerFrame extends JFrame {
         if (rr != null && bankReply != null) {
             rr.setBankReply(bankReply);
             list.repaint();
-        }
-    }
-
-    public class Consumer implements Runnable {
-
-        @Override
-        public void run() {
-            for (;;) {
-                try {
-                    ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("tcp://localhost:61616");
-                    connectionFactory.setTrustAllPackages(true);
-                    Connection connection = connectionFactory.createConnection();
-                    connection.start();
-                    Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                    Destination destination = session.createQueue("LoanRequest.Client");
-                    MessageConsumer consumer = session.createConsumer(destination);
-                    Message message = consumer.receive(1000);
-
-                    if (message instanceof ObjectMessage) {
-                        Object object = ((ObjectMessage) message).getObject();
-                        RequestReply rr = (RequestReply) object;
-                        LoanRequest loanRequest = (LoanRequest) rr.getRequest();
-                        add(loanRequest);
-                        BankInterestRequest bankInterestRequest = new BankInterestRequest(loanRequest.getAmount(), loanRequest.getTime());
-                        bankInterestRequest.setHash(loanRequest.getHash());
-                        add(loanRequest, bankInterestRequest);
-                        RequestReply rTwo = new RequestReply<BankInterestRequest, BankInterestReply>(bankInterestRequest, null);
-                        forward(rTwo);
-                    }
-
-                    consumer.close();
-                    session.close();
-                    connection.close();
-                } catch (JMSException e) {
-                    System.out.println("Caught: " + e);
-                }
-            }
-        }
-    }
-
-    public class ConsumerTwo implements Runnable {
-
-        @Override
-        public void run() {
-            for (;;) {
-                try {
-                    ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("tcp://localhost:61616");
-                    connectionFactory.setTrustAllPackages(true);
-                    Connection connection = connectionFactory.createConnection();
-                    connection.start();
-                    Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                    Destination destination = session.createQueue("LoanReply.Bank");
-                    MessageConsumer consumer = session.createConsumer(destination);
-                    Message message = consumer.receive(1000);
-
-                    if (message instanceof ObjectMessage) {
-                        Object object = ((ObjectMessage) message).getObject();
-                        RequestReply rr = (RequestReply) object;
-                        BankInterestRequest bir = (BankInterestRequest) rr.getRequest();
-                        BankInterestReply bire = (BankInterestReply)rr.getReply();
-
-                        JListLine jls = getBankRequestReply(bir);
-                        add(jls.getLoanRequest(), bire);
-                        LoanReply lr = new LoanReply();
-                        lr.setInterest(bire.getInterest());
-                        lr.setHash(bire.getHash());
-                        lr.setQuoteID(bire.getQuoteId());
-                        RequestReply rr2 = new RequestReply(jls.getLoanRequest(), lr);
-                        
-                        forwardTwo(rr2);
-                    }
-
-                    consumer.close();
-                    session.close();
-                    connection.close();
-                } catch (JMSException e) {
-                    System.out.println("Caught: " + e);
-                }
-            }
-        }
-    }
-
-    public void forward(RequestReply rr) {
-        try {
-            ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("tcp://localhost:61616");
-            connectionFactory.setTrustAllPackages(true);
-            Connection connection = connectionFactory.createConnection();
-            connection.start();
-            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-            Destination destination = session.createQueue("LoanRequest.Broker");
-            MessageProducer producer = session.createProducer(destination);
-            producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
-            ObjectMessage objectMessage = session.createObjectMessage();
-            objectMessage.setObject(rr);
-            producer.send(objectMessage);
-            System.out.println(rr.getRequest().toString());
-            session.close();
-            connection.close();
-        } catch (JMSException e) {
-            System.out.println("Caught: " + e);
-        }
-    }
-    
-    public void forwardTwo(RequestReply rr) {
-        try {
-            ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("tcp://localhost:61616");
-            connectionFactory.setTrustAllPackages(true);
-            Connection connection = connectionFactory.createConnection();
-            connection.start();
-            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-            Destination destination = session.createQueue("LoanReply.Broker");
-            MessageProducer producer = session.createProducer(destination);
-            producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
-            ObjectMessage objectMessage = session.createObjectMessage();
-            objectMessage.setObject(rr);
-            producer.send(objectMessage);
-            System.out.println(rr.getRequest().toString());
-            session.close();
-            connection.close();
-        } catch (JMSException e) {
-            System.out.println("Caught: " + e);
         }
     }
 }

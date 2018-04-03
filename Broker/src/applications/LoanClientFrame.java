@@ -17,22 +17,10 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.border.EmptyBorder;
 
-import org.apache.activemq.ActiveMQConnectionFactory;
- 
-import javax.jms.Connection;
-import javax.jms.DeliveryMode;
-import javax.jms.Destination;
-import javax.jms.JMSException;
-import javax.jms.Message;
-import javax.jms.MessageConsumer;
-import javax.jms.MessageProducer;
-import javax.jms.ObjectMessage;
-import javax.jms.Session;
-
 import messaging.requestreply.RequestReply;
-import model.bank.BankInterestReply;
 import model.loan.*;
 import utils.HashGenerator;
+import utils.Gateway;
 
 public class LoanClientFrame extends JFrame {
 
@@ -50,10 +38,32 @@ public class LoanClientFrame extends JFrame {
     private JLabel lblNewLabel_1;
     private JTextField tfTime;
 
-    /**
-     * Create the frame.
-     */
-    public LoanClientFrame() {
+    private Gateway gateway;
+
+    public static void main(String[] args) {
+        EventQueue.invokeLater(new Runnable() {
+            public void run() {
+                try {
+                    LoanClientFrame frame = new LoanClientFrame();
+                    frame.setVisible(true);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+
+    public LoanClientFrame(){
+        gateway = new Gateway("LoanReply.Broker"){
+            @Override
+            public void messageReceived(RequestReply rr){
+                int index = getRequestReply((LoanRequest) rr.getRequest());
+                RequestReply rr2 = listModel.get(index);
+                rr2.setReply(rr.getReply());
+                requestReplyList.repaint();
+            }
+        };
+
         setTitle("Loan Client");
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -130,7 +140,7 @@ public class LoanClientFrame extends JFrame {
                 request.setHash(HashGenerator.generate());
                 RequestReply rr = new RequestReply<LoanRequest, LoanReply>(request, null);
                 listModel.addElement(rr);
-                sendJMS(rr);
+                gateway.postMessage(rr);
             }
         });
         GridBagConstraints gbc_btnQueue = new GridBagConstraints();
@@ -150,44 +160,8 @@ public class LoanClientFrame extends JFrame {
 
         requestReplyList = new JList<RequestReply<LoanRequest, LoanReply>>(listModel);
         scrollPane.setViewportView(requestReplyList);
-        
-        new Thread(new Consumer()).start();
-
     }
 
-    private void sendJMS(RequestReply rr) {
-        try {
-                ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("tcp://localhost:61616");
-                connectionFactory.setTrustAllPackages(true);
-                Connection connection = connectionFactory.createConnection();
-                connection.start();
-                Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                Destination destination = session.createQueue("LoanRequest.Client");
-                MessageProducer producer = session.createProducer(destination);
-                producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
-                ObjectMessage objectMessage = session.createObjectMessage();
-                objectMessage.setObject(rr);
-                producer.send(objectMessage);
-                System.out.println(rr.getRequest().toString());
-                session.close();
-                connection.close();
-            }
-            catch (JMSException e) {
-                System.out.println("Caught: " + e);
-            }
-    }
-    
-    
-    
-    /**
-     * This method returns the RequestReply line that belongs to the request
-     * from requestReplyList (JList). You can call this method when an reply
-     * arrives in order to add this reply to the right request in
-     * requestReplyList.
-     *
-     * @param request
-     * @return
-     */
     private int getRequestReply(LoanRequest request) {
 
         for (int i = 0; i < listModel.getSize(); i++) {
@@ -197,53 +171,5 @@ public class LoanClientFrame extends JFrame {
             }
         }
         return -1;
-    }
-    
-    
-    
-    public static void main(String[] args) {
-        EventQueue.invokeLater(new Runnable() {
-            public void run() {
-                try {
-                    LoanClientFrame frame = new LoanClientFrame();
-                    frame.setVisible(true);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        });
-    }
-    
-    public class Consumer implements Runnable {
-        @Override
-        public void run() {
-            for (;;) {
-                try {
-                    ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("tcp://localhost:61616");
-                    connectionFactory.setTrustAllPackages(true);
-                    Connection connection = connectionFactory.createConnection();
-                    connection.start();
-                    Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                    Destination destination = session.createQueue("LoanReply.Broker");
-                    MessageConsumer consumer = session.createConsumer(destination);
-                    Message message = consumer.receive(1000);
-
-                    if (message instanceof ObjectMessage) {
-                        Object object = ((ObjectMessage) message).getObject();
-                        RequestReply rr = (RequestReply) object;
-                        int index = getRequestReply((LoanRequest)rr.getRequest());
-                        RequestReply rr2 = listModel.get(index);
-                        rr2.setReply(rr.getReply());
-                        requestReplyList.repaint();
-                    }
-
-                    consumer.close();
-                    session.close();
-                    connection.close();
-                } catch (JMSException e) {
-                    System.out.println("Caught: " + e);
-                }
-            }
-        }
     }
 }
