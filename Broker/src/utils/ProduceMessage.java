@@ -23,8 +23,8 @@ import org.apache.activemq.ActiveMQConnectionFactory;
  *
  * @author Yannick van Leeuwen
  */
-public class Producer {
-    public Producer(){
+public class ProduceMessage {
+    public ProduceMessage(){
         
     }
     

@@ -19,14 +19,14 @@ import org.apache.activemq.ActiveMQConnectionFactory;
  *
  * @author Yannick van Leeuwen
  */
-public class Consumer {
+public class ConsumeMessage {
     ActiveMQConnectionFactory connectionFactory;
     Connection connection;
     Session session;
     Destination destination;
     MessageConsumer consumer;
 
-    public Consumer(String que) {
+    public ConsumeMessage(String que) {
         connectionFactory = new ActiveMQConnectionFactory("tcp://localhost:61616");
         connectionFactory.setTrustAllPackages(true);
         try {

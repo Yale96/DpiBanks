@@ -14,12 +14,12 @@ import messaging.requestreply.RequestReply;
  * @author Yannick van Leeuwen
  */
 public class Gateway {
-    private Producer producer;
-    private Consumer consumer;
+    private ProduceMessage producer;
+    private ConsumeMessage consumer;
     
     public Gateway(String listenerQue){
-        producer = new Producer();
-        consumer = new Consumer(listenerQue){
+        producer = new ProduceMessage();
+        consumer = new ConsumeMessage(listenerQue){
             @Override
             public void messageReceive(RequestReply rr){
                 messageReceived(rr);
